@@ -39,6 +39,7 @@ PARAMETERS = collections.namedtuple(
     [
         'jolokia_url',
         'mbean_pattern',
+        'lld_macro_name',
         'jmx_host',
         'jmx_port',
         'jmx_user',
@@ -48,7 +49,9 @@ PARAMETERS = collections.namedtuple(
 
 
 def build_arguments(argv):
-    usage = '''%prog [options] "jolokia_url" "mbean_pattern"'''
+    usage = (
+        '''%prog [options] "jolokia_url" "mbean_pattern" "lld_macro_name"'''
+    )
     version = '%%prog %s' % __version__
     description = 'Zabbix Low Level Discovery with Jolokia.'
 
@@ -80,6 +83,7 @@ def build_parameters(arguments):
 
     jolokia_url = positional_arguments[0]
     mbean_pattern = positional_arguments[1]
+    lld_macro_name = positional_arguments[2]
     jmx_host = option_arguments.jmx_host
     jmx_port = option_arguments.jmx_port
     jmx_user = option_arguments.jmx_user
@@ -88,6 +92,7 @@ def build_parameters(arguments):
     parameters = PARAMETERS(
         jolokia_url,
         mbean_pattern,
+        lld_macro_name,
         jmx_host,
         jmx_port,
         jmx_user,
@@ -135,12 +140,14 @@ def query_jolokia(request):
         return None
 
 
-def show_lld_item(result_dict):
+def show_lld_item(parameters, result_dict):
     lld_item_dict = {}
     lld_item_dict['data'] = []
 
     for value in result_dict['value']:
-        lld_item_dict['data'].append({'{#MBEAN}': value})
+        lld_item_dict['data'].append(
+            {'{{#{0}}}'.format(parameters.lld_macro_name): value}
+        )
 
     lld_item_json = json.dumps(lld_item_dict)
     print(lld_item_json)
@@ -154,7 +161,7 @@ def main(argv=None):
     parameters = build_parameters(arguments)
     request = build_request(parameters)
     result_dict = query_jolokia(request)
-    show_lld_item(result_dict)
+    show_lld_item(parameters, result_dict)
 
     return 0
 
