@@ -4,7 +4,7 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import unicode_literals
 
-__version__ = '0.1.0'
+__version__ = '0.2.0'
 
 import collections
 import json
@@ -50,11 +50,13 @@ PARAMETERS = collections.namedtuple(
     [
         'jolokia_url',
         'mbean_pattern',
-        'lld_macro_name',
+        'lld_macro_object_name',
         'jmx_host',
         'jmx_port',
         'jmx_user',
         'jmx_pass',
+        'lld_macro_short_name',
+        'short_name_format',
     ],
 )
 
@@ -81,7 +83,8 @@ class NonExitOptionParser(optparse.OptionParser):
 
 def build_arguments(argv):
     usage = (
-        '''%prog [options] "jolokia_url" "mbean_pattern" "lld_macro_name"'''
+        '''%prog [options] '''
+        '''"jolokia_url" "mbean_pattern" "lld_macro_object_name"'''
     )
     version = '%%prog %s' % __version__
     description = 'Zabbix Low Level Discovery with Jolokia.'
@@ -103,6 +106,14 @@ def build_arguments(argv):
     option_parser.add_option(
         '-p', '--jmx-pass', help='Password of JMX remote user',
     )
+    option_parser.add_option(
+        '-s', '--lld-macro-short-name',
+        help='Macro name for human-readable ObjectName representation',
+    )
+    option_parser.add_option(
+        '-f', '--short-name-format',
+        help='Format string for human-readable ObjectName representation',
+    )
 
     arguments = option_parser.parse_args(argv)
 
@@ -117,7 +128,7 @@ def build_parameters(arguments):
     try:
         validate_jolokia_url(positional_args[0])
         validate_mbean_pattern(positional_args[1])
-        validate_lld_macro_name(positional_args[2])
+        validate_lld_macro_object_name(positional_args[2])
     except IndexError:
         raise OptionParserError(
             'Insufficient number of positional arguments was specified.'
@@ -126,53 +137,81 @@ def build_parameters(arguments):
     parameters = PARAMETERS(
         jolokia_url=positional_args[0],
         mbean_pattern=positional_args[1],
-        lld_macro_name=positional_args[2],
+        lld_macro_object_name=positional_args[2],
         jmx_host=option_args.jmx_host,
         jmx_port=option_args.jmx_port,
         jmx_user=option_args.jmx_user,
         jmx_pass=option_args.jmx_pass,
+        lld_macro_short_name=option_args.lld_macro_short_name,
+        short_name_format=option_args.short_name_format,
     )
 
     return parameters
 
 
 def validate_option_args(option_args):
+    # pylint: disable=too-many-branches
+
     def with_jmx_host():
         if not option_args.jmx_port:
             raise OptionParserError(
-                'Cannot specify jmx_host unless jmx_port was also specified.'
+                'Cannot specify jmx-host unless jmx-port was also specified.'
             )
 
         if option_args.jmx_user and not option_args.jmx_pass:
             raise OptionParserError(
-                'Cannot specify jmx_user unless jmx_pass was also specified.'
+                'Cannot specify jmx-user unless jmx-pass was also specified.'
             )
 
         if option_args.jmx_pass and not option_args.jmx_user:
             raise OptionParserError(
-                'Cannot specify jmx_pass unless jmx_user was also specified.'
+                'Cannot specify jmx-pass unless jmx-user was also specified.'
             )
 
     def without_jmx_host():
         if option_args.jmx_port:
             raise OptionParserError(
-                'Cannot specify jmx_port unless jmx_host was also specified.'
+                'Cannot specify jmx-port unless jmx-host was also specified.'
             )
 
         if option_args.jmx_user:
             raise OptionParserError(
-                'Cannot specify jmx_user unless jmx_host was also specified.'
+                'Cannot specify jmx-user unless jmx-host was also specified.'
             )
 
         if option_args.jmx_pass:
             raise OptionParserError(
-                'Cannot specify jmx_pass unless jmx_host was also specified.'
+                'Cannot specify jmx-pass unless jmx-host was also specified.'
             )
 
-    if option_args.jmx_host:
+    def with_lld_macro_short_name():
+        if not is_valid_macro_name(option_args.lld_macro_short_name):
+            raise OptionParserError(
+                'Invalid LLD macro short name was specified.'
+            )
+
+        if not option_args.short_name_format:
+            raise OptionParserError(
+                'Cannot specify lld-macro-short-name '
+                'unless short-name-format was also specified.'
+            )
+
+    def without_lld_macro_short_name():
+        if option_args.short_name_format:
+            raise OptionParserError(
+                'Cannot specify short-name-format '
+                'unless lld-macro-short-name was also specified.'
+            )
+
+    if option_args.jmx_host is not None:
         with_jmx_host()
     else:
         without_jmx_host()
+
+    if option_args.lld_macro_short_name is not None:
+        with_lld_macro_short_name()
+    else:
+        without_lld_macro_short_name()
 
 
 def validate_jolokia_url(url):
@@ -225,18 +264,21 @@ def validate_mbean_pattern(mbean_pattern):
         )
 
 
-def validate_lld_macro_name(lld_macro_name):
-    if not lld_macro_name:
+def validate_lld_macro_object_name(lld_macro_object_name):
+    if not lld_macro_object_name:
         raise OptionParserError(
-            'Empty string was specified for LLD macro name.'
+            'Empty string was specified for LLD macro object name.'
         )
 
+    if not is_valid_macro_name(lld_macro_object_name):
+        raise OptionParserError(
+            'Invalid LLD macro object name was specified.'
+        )
+
+
+def is_valid_macro_name(macro_name):
     regex = re.compile(r'^[.0-9A-Z_]{1,63}$')
-
-    if not regex.match(lld_macro_name):
-        raise OptionParserError(
-            'Invalid LLD macro name was specified.'
-        )
+    return regex.match(macro_name)
 
 
 def build_request(parameters):
@@ -281,12 +323,35 @@ def show_lld_item(parameters, result_dict):
     lld_item_dict['data'] = []
 
     for value in result_dict['value']:
-        lld_item_dict['data'].append(
-            {'{{#{0}}}'.format(parameters.lld_macro_name): value}
-        )
+        lld_item = {}
+
+        lld_item['{{#{0}}}'.format(parameters.lld_macro_object_name)] = value
+
+        if parameters.lld_macro_short_name:
+            lld_item['{{#{0}}}'.format(parameters.lld_macro_short_name)] = (
+                parameters.short_name_format.format(
+                    **object_name_to_dictionary(value)
+                )
+            )
+
+        lld_item_dict['data'].append(lld_item)
 
     lld_item_json = json.dumps(lld_item_dict)
     print(lld_item_json)
+
+
+def object_name_to_dictionary(object_name):
+    (domain, key_property_list) = object_name.split(':', 1)
+
+    dictionary = {}
+    dictionary['domain'] = domain
+    dictionary['kpl'] = {}
+
+    for key_property in key_property_list.split(','):
+        (name, value) = key_property.split('=', 1)
+        dictionary['kpl'][name] = value
+
+    return dictionary
 
 
 def main(argv=None):
@@ -299,7 +364,11 @@ def main(argv=None):
         request = build_request(parameters)
         result_dict = query_jolokia(request)
         show_lld_item(parameters, result_dict)
-    except (JolokiaStatusError, HTTPError, URLError) as error:
+    except (JolokiaStatusError,
+            KeyError,
+            HTTPError,
+            URLError,
+            ValueError) as error:
         print(str(error), file=sys.stderr)
         return 1
     except OptionParserError as error:
