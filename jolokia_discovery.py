@@ -275,12 +275,12 @@ def object_name_to_dictionary(object_name):
     (domain, key_property_list) = object_name.split(':', 1)
 
     dictionary = {}
-    dictionary['DOMAIN'] = domain
+    dictionary['{#DOMAIN}'] = domain
 
     for key_property in key_property_list.split(','):
         (name, value) = key_property.split('=', 1)
         name_upper = name.upper()
-        name_macrofied = 'KPL_{0}'.format(
+        name_macrofied = '{{#KPL_{0}}}'.format(
             re.sub('[^A-Z0-9_.]', '_', name_upper)
         )
         dictionary[name_macrofied] = value
